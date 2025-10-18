@@ -287,7 +287,6 @@ def main() -> None:
     """Entry point for the mcp script."""
     import uvicorn
 
-    # LLM_NOTE: Use app object directly to avoid import-by-string issues in packaged envs
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
