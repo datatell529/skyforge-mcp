@@ -1,0 +1,38 @@
+# Skyforge MCP Server - Docker Compose Configuration
+# Provides easy local development and deployment
+
+services:
+  skyforge-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: skyforge-mcp-server
+    
+    # Environment variables (override with .env file)
+    environment:
+      - SKYSPARK_URI=${SKYSPARK_URI:-http://host.docker.internal:8080/api/demo}
+      - SKYSPARK_USERNAME=${SKYSPARK_USERNAME}
+      - SKYSPARK_PASSWORD=${SKYSPARK_PASSWORD}
+    env_file: 
+      - .env
+    
+    # Run in stdio mode for MCP compatibility
+    command: ["uv", "run", "main.py"]
+    
+    # Port 8000 for HTTP/SSE mode (if running uvicorn)
+    ports:
+      - "8000:8000"
+    
+    # Enable interactive mode for stdio transport
+    stdin_open: true
+    tty: true
+    
+    # Development: hot reload on file changes
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./main.py
+          target: /main.py
+        - action: sync+restart
+          path: ./app
+          target: /app
