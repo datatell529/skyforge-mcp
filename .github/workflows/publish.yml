@@ -34,11 +34,10 @@ jobs:
       
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        # Uses PyPI trusted publishing (no API token needed)
-        # Configure trusted publishing in PyPI project settings:
-        # - Owner: skyforge-labs (or your GitHub org)
-        # - Repository: skyforge-mcp
-        # - Workflow: publish.yml
-        # - Environment: (leave empty for default)
-        # - PyPI project name: skyforge-mcp
+      # Uses PyPI trusted publishing (no API token needed)
+      # Configure trusted publishing in PyPI project settings:
+      # - Owner: skyforge-labs (or your GitHub org)
+      # - Repository: skyforge-mcp
+      # - Workflow: publish.yml
+      # - Environment: (leave empty for default)
+      # - PyPI project name: skyforge-mcp
