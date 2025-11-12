@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -27,51 +29,6 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
-        if: startsWith(github.ref, 'refs/tags/')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-
-name: Publish to PyPI
-
-on:
-  release:
-    types: [published]
-  workflow_dispatch:
-
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # Required for trusted publishing
-      contents: read   # Required for checking out code
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "latest"
-        
-    - name: Install dependencies
-      run: uv sync --all-extras
-      
-    - name: Build package
-      run: uv build
-      
-    - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      # Uses PyPI trusted publishing (no API token needed)
-      # Configure trusted publishing in PyPI project settings:
-      # - Owner: skyforge-labs (or your GitHub org)
-      # - Repository: skyforge-mcp
-      # - Workflow: publish.yml
-      # - Environment: (leave empty for default)
-      # - PyPI project name: skyforge-mcp
