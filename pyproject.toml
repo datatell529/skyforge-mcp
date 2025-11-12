@@ -38,6 +38,7 @@ dev = [
 
 [project.scripts]
 skyforge-mcp = "skyforge_mcp.main:main"
+skyforge-mcp-stdio = "skyforge_mcp.stdio:main"
 
 [tool.setuptools.packages.find]
 include = ["skyforge_mcp*", "app*"]
@@ -72,4 +73,8 @@ skip-magic-trailing-comma = false
 # Like Black, automatically detect the line length from the
 # `line-length` setting.
 line-ending = "auto"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 

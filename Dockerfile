@@ -15,5 +15,5 @@ COPY ./ ./
 EXPOSE 8000
 
 # Default: run HTTP server
-# Override with: docker run ... uv run main.py (for stdio)
+# Override with: docker run ... uv run main.py (alternate entry)
 CMD ["uv", "run", "python", "main.py"]

@@ -16,7 +16,7 @@ services:
     env_file: 
       - .env
     
-    # Run in stdio mode for MCP compatibility
+    # Run HTTP server (uvicorn)
     command: ["uv", "run", "main.py"]
     
     # Port 8000 for HTTP/SSE mode (if running uvicorn)

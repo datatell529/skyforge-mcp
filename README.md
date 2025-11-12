@@ -119,6 +119,43 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 Restart Claude Desktop after saving.
 
+## Cursor MCP Integration
+
+Add this to your Cursor MCP configuration to run via stdio:
+
+```json
+{
+  "mcpServers": {
+    "skyforge-mcp": {
+      "command": "python",
+      "args": ["-m", "skyforge_mcp.stdio"],
+      "env": {
+        "SKYSPARK_URI": "https://skyspark.skyforge.app/api/skyforgeMcp",
+        "SKYSPARK_USERNAME": "skycode",
+        "SKYSPARK_PASSWORD": "skycode"
+      }
+    }
+  }
+}
+```
+
+Alternatively, after `pip install skyforge-mcp`, you can use the console script:
+
+```json
+{
+  "mcpServers": {
+    "skyforge-mcp": {
+      "command": "skyforge-mcp-stdio",
+      "env": {
+        "SKYSPARK_URI": "https://skyspark.skyforge.app/api/skyforgeMcp",
+        "SKYSPARK_USERNAME": "skycode",
+        "SKYSPARK_PASSWORD": "skycode"
+      }
+    }
+  }
+}
+```
+
 ## Creating SkySpark Tools
 
 In SkySpark, implement `fetchMcpTools()` to return tool definitions as a grid. Each row should have:
