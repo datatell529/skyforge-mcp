@@ -15,6 +15,9 @@ services:
       - SKYSPARK_PASSWORD=${SKYSPARK_PASSWORD}
     env_file: 
       - .env
+    # Ensure host.docker.internal resolves to the host gateway on all platforms
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     
     # Run HTTP server (uvicorn)
     command: ["uv", "run", "main.py"]

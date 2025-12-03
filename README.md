@@ -31,6 +31,28 @@ The server fetches tools from SkySpark on each `list_tools` request. This means:
 - SkySpark or Haxall server with API access
 - Docker (recommended) OR Python 3.12+ with [uv](https://docs.astral.sh/uv/)
 
+### Install from PyPI
+
+Once published, you can install directly:
+
+```bash
+pip install skyforge-mcp
+
+# Run stdio entry (console script)
+skyforge-mcp-stdio
+
+# Or run package via module (also stdio)
+python -m skyforge_mcp
+```
+
+Environment variables (required by all modes):
+
+```bash
+export SKYSPARK_URI=http://host.docker.internal:8082/api/demo
+export SKYSPARK_USERNAME=su
+export SKYSPARK_PASSWORD=su
+```
+
 ### Quick Setup with Example Tools
 
 For immediate testing, import the included `setup.zinc` file into your SkySpark project. This provides example MCP tools and the required `fetchMcpTools()` function.
@@ -76,48 +98,87 @@ For immediate testing, import the included `setup.zinc` file into your SkySpark 
    
    # Create .env (same as above)
    
-   # Run stdio mode (for Claude Desktop)
+# Run HTTP/SSE mode (for web clients)
    uv run main.py
    
-   # OR run HTTP/SSE mode (for web clients)
-   uv run uvicorn main:app --host 0.0.0.0 --port 8000
+# Or stdio mode directly (same as pip/console-script behavior)
+uv run python -m skyforge_mcp
    ```
 
-## Claude Desktop Integration
+## Claude Desktop Integration (stdio)
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+This server is designed to run as an MCP stdio server when used with Claude Desktop. You can run it through Docker Compose.
 
-**Docker:**
+Edit your Claude Desktop config:
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Pick one of the options below.
+
+### Option A — Use cwd (project working directory)
 ```json
 {
   "mcpServers": {
-    "skyforge": {
+    "skyforge-mcp": {
+      "type": "stdio",
       "command": "docker",
-      "args": ["exec", "-i", "skyspark-mcp-server", "uv", "run", "main.py"]
-    }
-  }
-}
-```
-
-**Local:**
-```json
-{
-  "mcpServers": {
-    "skyforge": {
-      "command": "uv",
-      "args": ["run", "main.py"],
-      "cwd": "/path/to/skyforge-mcp",
+      "args": ["compose","run","--rm","skyforge-mcp","uv","run","skyforge-mcp-stdio"],
+      "cwd": "C:\\\\Users\\\\YOUR_USER\\\\Documents\\\\SkyForge labs\\\\GitHub\\\\skyforge-mcp",
       "env": {
-        "SKYSPARK_URI": "http://localhost:8080/api/demo",
-        "SKYSPARK_USERNAME": "your_username",
-        "SKYSPARK_PASSWORD": "your_password"
+        "SKYSPARK_URI": "http://host.docker.internal:8082/api/demo",
+        "SKYSPARK_USERNAME": "su",
+        "SKYSPARK_PASSWORD": "su"
       }
     }
   }
 }
 ```
 
-Restart Claude Desktop after saving.
+### Option B — Pass the compose file path explicitly (works from any cwd)
+```json
+{
+  "mcpServers": {
+    "skyforge-mcp": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "compose","-f","C:\\\\Users\\\\YOUR_USER\\\\Documents\\\\SkyForge labs\\\\GitHub\\\\skyforge-mcp\\\\docker-compose.yml",
+        "run","--rm","skyforge-mcp","uv","run","skyforge-mcp-stdio"
+      ],
+      "env": {
+        "SKYSPARK_URI": "http://host.docker.internal:8082/api/demo",
+        "SKYSPARK_USERNAME": "su",
+        "SKYSPARK_PASSWORD": "su"
+      }
+    }
+  }
+}
+```
+
+Notes:
+- Replace `YOUR_USER` and the path to match your machine.
+- On Windows JSON, backslashes must be escaped (`\\`).
+- Restart Claude Desktop after saving the config.
+
+### Cursor MCP (stdio) configuration
+
+Add to Cursor settings (MCP servers). This uses the PyPI package if installed:
+
+```json
+{
+  "mcpServers": {
+    "skyforge-mcp": {
+      "command": "python",
+      "args": ["-m", "skyforge_mcp"],
+      "env": {
+        "SKYSPARK_URI": "https://skyspark.skyforge.app/api/skyforgeMcp",
+        "SKYSPARK_USERNAME": "skycode",
+        "SKYSPARK_PASSWORD": "skycode"
+      }
+    }
+  }
+}
+```
 
 ## Cursor MCP Integration
 

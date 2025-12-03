@@ -282,6 +282,26 @@ try:
 except Exception as e:  # noqa: BLE001
     logger.warning(f"Failed to add CORS middleware: {e}")
 
+# Log ALL routes (including nested mounts) to diagnose endpoint paths
+def _log_routes() -> None:
+    try:
+        def visit(prefix: str, routes) -> None:
+            for r in routes or []:
+                path = getattr(r, "path", "/")
+                methods = getattr(r, "methods", None)
+                full_path = f"{prefix}{path}".replace("//", "/")
+                logger.info(f"HTTP route mounted: path='{full_path}' methods={methods}")
+                # Recurse into mounted sub-apps
+                child_app = getattr(r, "app", None)
+                child_routes = getattr(child_app, "routes", None)
+                if child_routes:
+                    visit(full_path, child_routes)
+
+        visit("", getattr(app, "routes", []))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to enumerate routes: {e}")
+
+_log_routes()
 
 def main() -> None:
     """Entry point for the mcp script."""
