@@ -256,11 +256,18 @@ def hgrid_to_tools(hgrid: HGrid) -> List[types.Tool]:
         if input_schema_raw and isinstance(input_schema_raw, dict):
             params_kind = input_schema_raw.get("kind", "Dict")
             
-            # Capture parameter order for List kind
-            if params_kind == "List" and "vals" in input_schema_raw:
-                vals = input_schema_raw["vals"]
+            # Capture parameter order for both List and Dict kind
+            if params_kind == "List":
+                vals = input_schema_raw.get("vals") or input_schema_raw.get("params", [])
                 if isinstance(vals, list):
                     params_order = [item["name"] for item in vals if "name" in item]
+            elif params_kind == "Dict" and "params" in input_schema_raw:
+                # Dict params preserve order in the Row data
+                params_dict = input_schema_raw["params"]
+                if isinstance(params_dict, dict):
+                    params_order = [k for k in params_dict if isinstance(params_dict.get(k), dict) and params_dict[k].get("name")]
+                elif isinstance(params_dict, list):
+                    params_order = [item["name"] for item in params_dict if "name" in item]
             
             input_schema = convert_haystack_to_json_schema(input_schema_raw)
         else:
@@ -280,6 +287,19 @@ def hgrid_to_tools(hgrid: HGrid) -> List[types.Tool]:
         
         # Add params order for List kind (needed to convert dict args to positional list)
         if params_order:
+            # FIN stores Dict keys alphabetically, so the order from Dict keys
+            # may be wrong. As a fallback, parse the function signature from
+            # the src field which always has the correct parameter order.
+            src_raw = plain_row.get("src", "")
+            if src_raw and params_kind == "Dict":
+                import re
+                m = re.match(r"\(([^)]+)\)", src_raw.strip())
+                if m:
+                    sig_params = [p.strip() for p in m.group(1).split(",")]
+                    # Only use the src-derived order if the two lists differ
+                    # and contain the same params (meaning FIN reordered them)
+                    if sig_params != params_order and set(sig_params) == set(params_order):
+                        params_order = sig_params
             tool_meta["paramsOrder"] = params_order
 
         # Create Tool object

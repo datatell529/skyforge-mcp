@@ -37,7 +37,7 @@ AXON_TOOLS_BY_ID: Dict[str, types.Tool] = {}
 AXON_PROMPTS_BY_NAME: Dict[str, types.Prompt] = {}
 
 mcp = FastMCP(
-    name="skyforge-mcp",
+    name="skyforge-mcp-fin",
     sse_path="/mcp",
     message_path="/mcp/messages",
     stateless_http=True,
@@ -307,7 +307,7 @@ def main() -> None:
     """Entry point for the mcp script."""
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
 
 
 if __name__ == "__main__":

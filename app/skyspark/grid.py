@@ -4,8 +4,22 @@ from functools import wraps
 from typing import Any, Callable, TypeVar, Union
 
 from phable import Grid, Marker, NA, Remove, Number, Uri, Ref, Symbol, Coord, DateRange, DateTimeRange, XStr
-from phable.parsers.json import grid_to_json
-from phable.parsers.zinc_writer import ZincWriter
+
+# phable API changed between 0.1.27 and 0.1.28:
+#   v0.1.27: from phable.io.json_encoder import JsonEncoder
+#            from phable.io.zinc_encoder import ZincEncoder
+#   v0.1.28: from phable.io.ph_json import ph_to_json
+#            from phable.io.ph_zinc import ph_to_zinc
+try:
+    from phable.io.ph_json import ph_to_json as _encode_json
+    from phable.io.ph_zinc import ph_to_zinc as _encode_zinc
+except ImportError:
+    from phable.io.json_encoder import JsonEncoder as _JsonEncoder
+    from phable.io.zinc_encoder import ZincEncoder as _ZincEncoder
+    def _encode_json(grid):
+        return _JsonEncoder().encode(grid)
+    def _encode_zinc(grid):
+        return _ZincEncoder().encode(grid).decode()
 
 from .types import (
     MarkerExt,
@@ -105,7 +119,7 @@ class HGrid:
         Returns:
             Dict representation of grid
         """
-        return grid_to_json(self.grid)
+        return json.loads(_encode_json(self.grid))
 
     def toZinc(self) -> str:
         """Convert Grid to Zinc format string
@@ -113,7 +127,7 @@ class HGrid:
         Returns:
             Zinc string representation
         """
-        return ZincWriter.grid_to_str(self.grid)
+        return _encode_zinc(self.grid)
 
     @property
     def rows(self) -> list:
