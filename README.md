@@ -15,6 +15,10 @@ A Model Context Protocol (MCP) server that connects AI assistants to SkySpark an
 - **Dual Transport** - Supports stdio (Claude Desktop) and HTTP/SSE (web clients)
 - **Type Safety** - Full Haystack type system with automatic JSON Schema conversion
 - **Docker Ready** - Simple Docker deployment included
+- **Tool Grouping (SB-09)** - Group-based tool loading reduces token consumption by ~97%
+- **Multi-Pod Auto-Discovery (SB-05/06)** - Automatically discovers @Axon functions from configured pods (finCopilot, coolMatrix, chillerOpt)
+- **Unified finCopilotAsk (SB-03)** - Single entry point to finCopilot's 9 domain agents
+- **Domain Prompts (SB-11)** - 12 built-in prompt templates for all finCopilot capability domains
 
 ## How It Works
 

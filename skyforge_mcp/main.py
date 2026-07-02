@@ -44,22 +44,64 @@ mcp = FastMCP(
 )
 
 
+# ── SB-09: Group-management tool definitions ─────────────────────────────
+
+_GROUP_TOOL_DEFS: list[types.Tool] = [
+    types.Tool(
+        name="getToolGroups",
+        description="获取可用工具分组列表。调用后返回所有可选的工具组名称和说明，AI 可根据任务选择适合的组。",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    types.Tool(
+        name="setToolGroup",
+        description="切换当前工具组。设置后 tools/list 将只返回该组的工具（+基础工具）。用 'all' 可恢复显示全部工具。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "group": {
+                    "type": "string",
+                    "description": "工具组名称，可选: query/energy/diagnosis/control/coolmatrix_admin/admin/ai_chat/all",
+                },
+            },
+            "required": ["group"],
+        },
+    ),
+]
+
+
 @mcp._mcp_server.list_tools()
 async def _list_tools() -> List[types.Tool]:
-    """Fetch fresh axon tools from SkySpark.
-    LLM_NOTE: Returns only axon tools, no basic tools."""
+    """Fetch tools from SkySpark, filtered by active group (SB-09).
+
+    LLM_NOTE: Returns only tools in the currently active group
+    (default: 'base' = basic tools only).  Use getToolGroups to
+    see available groups, and setToolGroup to switch.
+    """
     global AXON_TOOLS_BY_ID
 
     if skyspark is None:
         logger.error("Cannot list tools: SkySpark client not initialized")
         return []
 
-    # Fetch fresh axon tools from SkySpark
+    # Fetch tools filtered by active group
     axon_tools = skyspark.fetchMcpTools()
+
+    # Always include the group-management tools
+    for gt in _GROUP_TOOL_DEFS:
+        if gt.name not in {t.name for t in axon_tools}:
+            axon_tools.append(gt)
 
     # Update lookup dictionary
     AXON_TOOLS_BY_ID = {tool.name: tool for tool in axon_tools}
 
+    logger.info(
+        "tools/list: active_group=%s, returned %d tools",
+        skyspark._active_group if hasattr(skyspark, "_active_group") else "?",
+        len(axon_tools),
+    )
     return axon_tools
 
 
@@ -81,12 +123,97 @@ async def _list_prompts() -> List[types.Prompt]:
     return axon_prompts
 
 
+# ── Prompt content templates (SB-11) ─────────────────────────────────────
+
+_DOMAIN_SYSTEM_PROMPTS: dict[str, str] = {
+    "fin_general_assistant": (
+        "你是一名楼宇运维助手（finCopilot 通用模式）。"
+        "用 finMcp* 工具回答用户关于楼宇设备运行、查询、控制的日常问题。"
+        "回答应简洁准确，必要时引用数据来源。"
+    ),
+    "fin_hvac_diagnosis": (
+        "你是一名暖通空调诊断专家。分析用户指定的 HVAC 设备（AHU、冷机、冷却塔、水泵等）运行状态。\n"
+        "工作流程：\n"
+        "1. 用 finMcpDescribeEntity 了解设备详情\n"
+        "2. 用 finMcpReadCurrent 读取关键点位当前值\n"
+        "3. 用 finMcpReadHistory/ChillerPerformance 分析趋势\n"
+        "4. 有异常时用 finMcpListAlarms 查看关联报警\n"
+        "5. 如需创建工单用 finMcpCreateWorkOrder\n"
+        "诊断应给出：现象 → 根因分析 → 建议措施。"
+    ),
+    "fin_me_equipment": (
+        "你是一名机电设备工程师。查询风机、水泵、照明等机电设备的状态与参数。\n"
+        "使用 finMcpQuery/finMcpDescribeEntity/finMcpReadCurrent 获取设备信息。"
+    ),
+    "fin_space_comfort": (
+        "你是一名室内环境质量(IEQ)专家。分析温度、湿度、CO₂、光照等环境参数，"
+        "评估空间舒适度是否符合 ASHRAE 标准，给出改善建议。"
+    ),
+    "fin_bas_control": (
+        "你是一名楼宇自控系统工程师。查看楼控系统的运行参数、控制序列、"
+        "设备启停状态和模式切换。使用 finMcpQuery/finMcpReadCurrent 获取信息。"
+    ),
+    "fin_fdd_diagnosis": (
+        "你是一名故障诊断专家。主动分析设备报警，诊断故障根因。\n"
+        "工作流程：\n"
+        "1. 用 finMcpListAlarms 查看当前报警\n"
+        "2. 用 finMcpDescribeEntity 了解报警设备\n"
+        "3. 用 finMcpReadCurrent/ReadHistory 分析相关点位\n"
+        "4. 用 finMcpRecallCases 检索相似案例\n"
+        "5. 给出诊断结论和修复建议，必要时创建工单"
+    ),
+    "fin_energy_analysis": (
+        "你是一名能效分析师。分析建筑能耗数据，计算 KPI，识别节能机会。\n"
+        "工作流程：\n"
+        "1. 用 finMcpEnergyBreakdown 看能耗构成\n"
+        "2. 用 finMcpComputeKpi 计算 EUI/COP 等指标\n"
+        "3. 用 finMcpEnergyBaseline 对比基准\n"
+        "4. 用 finMcpSavingsPotential 评估节能潜力\n"
+        "5. 用 finMcpCarbon 核算碳排放\n"
+        "输出应包含：能耗概况 → 关键指标 → 异常发现 → 节能建议。"
+    ),
+    "fin_wellness": (
+        "你是一名健康建筑专家。分析室内空气质量(IAQ)、热舒适(PMV/PPD)、"
+        "CO₂浓度、VOC等健康指标，参照 WELL/绿建标准给出评估和改进建议。"
+    ),
+    "fin_report_generation": (
+        "你是一名报告撰写专家。根据用户需求自动生成运行报告/能效报告/诊断报告。\n"
+        "先用 finMcpQuery 收集数据，再用 finMcpReport 或 finMcpBuildCustomReport 生成报告。"
+    ),
+    "fin_query_entities": (
+        "你是一名楼宇数据检索专家。用自然语言理解用户的查询意图，"
+        "转换成 finMcpQuery 的 Haystack 过滤器来查询设备、点位和空间信息。"
+    ),
+    "fin_work_order": (
+        "你是一名工单管理员。管理工单的全生命周期：查询、创建、关闭。\n"
+        "- list：用 finMcpListWorkOrders 列出工单\n"
+        "- create：用 finMcpCreateWorkOrder 新建工单\n"
+        "- close：用 finMcpCloseWorkOrder 关闭工单并记录处理结果"
+    ),
+    "fin_alarm_review": (
+        "你是一名报警审查员。查看当前激活报警，分析严重程度和影响范围。\n"
+        "用 finMcpListAlarms 获取报警列表，用 finMcpCriticalAlarms 查看严重报警。"
+    ),
+}
+
+
 async def _get_prompt_request(req: types.GetPromptRequest) -> types.ServerResult:
-    """Handle get_prompt request - returns prompt with populated message template."""
+    """Handle get_prompt request — returns domain-specific system prompt + user message."""
     prompt_name = req.params.name
     arguments = req.params.arguments or {}
 
-    # Look up prompt
+    # Lazily populate prompt cache if needed (SB-11)
+    global AXON_PROMPTS_BY_NAME
+    if not AXON_PROMPTS_BY_NAME:
+        try:
+            from app.skyspark.client import SkySpark
+            client = skyspark or SkySpark()
+            axon_prompts = client.fetchMcpPrompts()
+            AXON_PROMPTS_BY_NAME = {p.name: p for p in axon_prompts}
+        except Exception:
+            pass
+
+    # Look up prompt in our cache (fallback to _DOMAIN_SYSTEM_PROMPTS keys)
     prompt = AXON_PROMPTS_BY_NAME.get(prompt_name)
     if prompt is None:
         return types.ServerResult(
@@ -105,15 +232,84 @@ async def _get_prompt_request(req: types.GetPromptRequest) -> types.ServerResult
             ),
         )
 
-    # Build message template with argument placeholders
-    message_parts = [f"Prompt: {prompt.description}"]
+    # Build system message from domain template
+    system_text = _DOMAIN_SYSTEM_PROMPTS.get(
+        prompt_name,
+        f"You are a building operations assistant. Use finCopilot tools to help the user.\nPrompt: {prompt.description}",
+    )
 
-    if arguments:
-        message_parts.append("\nArguments:")
+    # Build user message from arguments
+    user_parts: list[str] = []
+    if prompt_name == "fin_general_assistant":
+        user_parts.append(arguments.get("question", "请帮我看看当前的运行状态。"))
+    elif prompt_name == "fin_energy_analysis":
+        equip = arguments.get("equipRef", "整个建筑")
+        rng = arguments.get("range", "thisMonth")
+        user_parts.append(f"请对 {equip} 在 {rng} 的能耗进行分析。")
+    elif prompt_name == "fin_hvac_diagnosis":
+        equip = arguments.get("equipRef", "指定设备")
+        rng = arguments.get("range", "thisWeek")
+        user_parts.append(f"请诊断 {equip} 在 {rng} 的运行状态，分析是否存在异常。")
+    elif prompt_name == "fin_report_generation":
+        rtype = arguments.get("reportType", "energy")
+        rng = arguments.get("range", "thisMonth")
+        equip = arguments.get("equipRef", "")
+        equip_part = f" 设备范围: {equip}" if equip else ""
+        user_parts.append(f"请生成一份{rtype}报告，覆盖时间: {rng}。{equip_part}")
+    elif prompt_name == "fin_fdd_diagnosis":
+        equip = arguments.get("equipRef", "所有设备")
+        user_parts.append(f"请检查 {equip} 是否存在故障，分析报警并给出诊断结论。")
+    elif prompt_name == "fin_work_order":
+        action = arguments.get("action", "list")
+        if action == "list":
+            user_parts.append("请列出当前工单。")
+        elif action == "create":
+            desc = arguments.get("description", "新建工单")
+            user_parts.append(f"请创建工单: {desc}")
+        elif action == "close":
+            wid = arguments.get("workOrderId", "")
+            user_parts.append(f"请关闭工单 {wid}，记录处理结果。")
+        else:
+            user_parts.append(f"执行工单操作: {action}")
+    elif prompt_name == "fin_query_entities":
+        q = arguments.get("query", "所有设备")
+        limit = arguments.get("limit", 20)
+        user_parts.append(f"查询: {q}（限制 {limit} 条）")
+    elif prompt_name == "fin_alarm_review":
+        sev = arguments.get("severity", "all")
+        user_parts.append(f"请查看严重级别为 '{sev}' 的当前报警。")
+    elif prompt_name == "fin_space_comfort":
+        space = arguments.get("spaceRef", "指定区域")
+        rng = arguments.get("range", "thisWeek")
+        user_parts.append(f"请分析 {space} 在 {rng} 的环境舒适度。")
+    elif prompt_name == "fin_wellness":
+        space = arguments.get("spaceRef", "指定区域")
+        rng = arguments.get("range", "thisWeek")
+        user_parts.append(f"请评估 {space} 在 {rng} 的健康舒适指标。")
+    elif prompt_name == "fin_me_equipment":
+        equip = arguments.get("equipRef", "指定设备")
+        user_parts.append(f"请查询设备 {equip} 的当前状态和参数。")
+    elif prompt_name == "fin_bas_control":
+        equip = arguments.get("equipRef", "")
+        flt = arguments.get("filter", "")
+        parts = []
+        if equip:
+            parts.append(f"设备: {equip}")
+        if flt:
+            parts.append(f"过滤器: {flt}")
+        parts.append("请查看楼控系统运行状态")
+        user_parts.append(" | ".join(parts))
+    else:
+        # Generic fallback
         for arg_name, arg_value in arguments.items():
-            message_parts.append(f"  {arg_name}: {arg_value}")
+            user_parts.append(f"{arg_name}: {arg_value}")
+        if not user_parts:
+            user_parts.append(prompt.description or f"请帮我处理 {prompt_name}")
 
-    message_text = "\n".join(message_parts)
+    # MCP protocol only supports "user" and "assistant" roles for PromptMessage.
+    # We combine the system instruction into the user message, prefixed with a
+    # clear role indicator so the LLM understands it's a system-level directive.
+    combined_text = f"[系统指令]\n{system_text}\n\n[用户问题]\n{'\n'.join(user_parts)}"
 
     return types.ServerResult(
         types.GetPromptResult(
@@ -121,7 +317,7 @@ async def _get_prompt_request(req: types.GetPromptRequest) -> types.ServerResult
             messages=[
                 types.PromptMessage(
                     role="user",
-                    content=types.TextContent(type="text", text=message_text),
+                    content=types.TextContent(type="text", text=combined_text),
                 ),
             ],
         ),
@@ -150,17 +346,74 @@ def _validate_tool_arguments(tool: types.Tool, arguments: Dict[str, Any]) -> Opt
 
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     """
-    LLM_NOTE: Tool dispatcher for axon tools only.
+    LLM_NOTE: Tool dispatcher – handles group-management tools and axon tools.
     """
-    # Look up tool
-    tool = AXON_TOOLS_BY_ID.get(req.params.name)
+    tool_name = req.params.name
+    arguments = req.params.arguments or {}
+
+    # ── SB-09: Handle group-management tools ──────────────────────────
+    if tool_name == "getToolGroups":
+        if skyspark is None:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text="SkySpark client not available")],
+                    isError=True,
+                ),
+            )
+        groups = skyspark.getToolGroups()
+        lines = ["可用工具组：\n"]
+        for g in groups:
+            lines.append(f"  · {g['name']}: {g['description']}")
+        lines.append(f"\n使用 setToolGroup(group='组名') 切换工具组。")
+        lines.append(f"当前组: {skyspark._active_group}")
+        return types.ServerResult(
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text="\n".join(lines))],
+            ),
+        )
+
+    if tool_name == "setToolGroup":
+        if skyspark is None:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text="SkySpark client not available")],
+                    isError=True,
+                ),
+            )
+        group_name = arguments.get("group", "")
+        if not group_name:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text="请指定 group 参数")],
+                    isError=True,
+                ),
+            )
+        try:
+            msg = skyspark.setActiveGroup(group_name)
+            # Invalidate the tool cache so next tools/list picks up the new group
+            skyspark._invalidate_tool_cache()
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text=msg)],
+                ),
+            )
+        except ValueError as exc:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text=str(exc))],
+                    isError=True,
+                ),
+            )
+
+    # ── Regular axon tool lookup ──────────────────────────────────────
+    tool = AXON_TOOLS_BY_ID.get(tool_name)
     if not tool:
         return types.ServerResult(
             types.CallToolResult(
                 content=[
                     types.TextContent(
                         type="text",
-                        text=f"Unknown tool: {req.params.name}",
+                        text=f"Unknown tool: {tool_name}",
                     ),
                 ],
                 isError=True,

@@ -496,6 +496,47 @@ class SkySpark:
         "finMcpEvalGuardrails": [],
         "finMcpEvalTrajectories": [],
         "finMcpPerfCurve": [("equipRef", "Str"), ("range", "Str")],
+        # ── coolMatrix functions (SB-06) ────────────────────────────────────
+        "cmCleanHistory": [("pointIds", "List"), ("days", "Number")],
+        "cmChillerPerfNow": [("chillerRef", "Str")],
+        "cmCreateAndBindBatch": [("bindings", "List")],
+        "cmTopologyPush": [("siteRef", "Str")],
+        "cmAiBoxBuildPlantDataset": [("siteRef", "Str"), ("force", "Bool")],
+        "cmAiInfer": [("modelRef", "Str"), ("input", "Dict")],
+        "cmAiPredict": [("modelRef", "Str"), ("horizon", "Str")],
+        "cmAiOptimize": [("siteRef", "Str"), ("objective", "Str")],
+        "cmEnergyBreakdown": [("siteRef", "Str"), ("range", "Str")],
+        "cmEnergyCompare": [("siteRef", "Str"), ("rangeA", "Str"), ("rangeB", "Str")],
+        "cmPlantCopNow": [("siteRef", "Str")],
+        "cmPumpPerformance": [("pumpRef", "Str")],
+        "cmTowerPerformance": [("towerRef", "Str")],
+        "cmTowerFreqControl": [("towerRef", "Str"), ("sp", "Number")],
+        "cmActivateStrategy": [("strategyRef", "Str")],
+        "cmStopStrategyDevices": [("strategyRef", "Str")],
+        "cmGetPlantTree": [("siteRef", "Str")],
+        "cmGetSites": [],
+        "cmGetAllEquipment": [("siteRef", "Str")],
+        "cmGetChillers": [("siteRef", "Str")],
+        "cmWritePoint": [("pointRef", "Str"), ("value", "Number"), ("reason", "Str")],
+        "cmSafetyStatus": [("equipRef", "Str")],
+        "cmLicenseStatus": [],
+        "cmHelpDocs": [],
+        "cmFsmStatus": [("siteRef", "Str")],
+        "cmDeleteGroupStrategy": [("strategyRef", "Str")],
+        "cmTrimActionAudit": [("siteRef", "Str"), ("days", "Number")],
+        "cmRotateAllGroupsNative": [("siteRef", "Str")],
+        "cmWtfSnapshot": [("siteRef", "Str")],
+        "cmAiBoxStatus": [("siteRef", "Str")],
+        "cmAiModels": [("siteRef", "Str")],
+        "cmEnergyMonthly": [("siteRef", "Str"), ("year", "Number")],
+        "cmChillerOptRunCycle": [("siteRef", "Str")],
+        "cmEngineAllowed": [("siteRef", "Str")],
+        "cmStrategyMainLoop": [("siteRef", "Str")],
+        # ── chillerOpt functions ─────────────────────────────────────────
+        "chillerOptFeatures": [("siteRef", "Str"), ("range", "Str")],
+        "chillerOptReloadModel": [("siteRef", "Str")],
+        "chillerOptRunCycle": [("siteRef", "Str")],
+        "chillerOptScore": [("siteRef", "Str"), ("range", "Str")],
     }
 
     def _parse_params_from_doc(self, doc: str, func_name: str = "") -> dict:
@@ -627,8 +668,235 @@ class SkySpark:
             "params": tool_params,
         }
 
-    def fetchMcpTools(self) -> list[types.Tool]:
-        """Fetch MCP tools from SkySpark, with auto-discovery and caching.
+    # ── SB-09: Tool group definitions ───────────────────────────────────
+    # Each group has: description, tool_names (list of exact names or
+    # prefix patterns ending with '*'), and optional exclude list.
+    TOOL_GROUPS: dict[str, dict] = {
+        "base": {
+            "description": "基础工具 — 始终可用",
+            "tool_names": [
+                "about", "evalAxon", "readSites", "readById", "readRecord",
+                "readEquips", "readPoints", "readAll",
+                "batchCommitAdd", "commitUpdate", "commitRemove",
+                "finCopilotAsk",
+                "getToolGroups", "setToolGroup",
+            ],
+        },
+        "query": {
+            "description": "查询检索 — 语义查询、设备详情、点位当前值/历史趋势",
+            "tool_names": [
+                "finMcpQuery", "finMcpDescribeEntity", "finMcpReadCurrent",
+                "finMcpReadHistory", "finMcpAggregateQuery",
+                "finMcpEntityGraphics", "finMcpEquipTopology",
+                "finMcpDraftQuery",
+            ],
+        },
+        "energy": {
+            "description": "能效分析 — 能耗分解、KPI计算、碳排放、基准对比、节能潜力",
+            "tool_names": [
+                "finMcpEnergyBreakdown", "finMcpEnergyBaseline",
+                "finMcpComputeKpi", "finMcpEnergyFlow", "finMcpCarbon",
+                "finMcpSavingsPotential", "finMcpChillerPerformance",
+                "finMcpPerfCurve", "finMcpPsychrometric",
+                "finMcpEnergyReport", "finMcpReport",
+                "finMcpCarbonMv", "finMcpReportBenchmark",
+                "finMcpReportExplain",
+                # coolMatrix energy functions
+                "cmEnergyBreakdown*", "cmEnergyCompare*",
+                "cmEnergy*", "cmPlantCopNow*",
+                "cmPumpPerformance*", "cmTowerPerformance*",
+                "cmEfficiency*", "cmMeter*",
+                "cmPlantPerformanceSnapshot*",
+                # chillerOpt
+                "chillerOptFeatures*", "chillerOptScore*",
+            ],
+        },
+        "diagnosis": {
+            "description": "故障诊断 — 报警审查、设备诊断、根因分析、案例检索",
+            "tool_names": [
+                "finMcpListAlarms", "finMcpCriticalAlarms",
+                "finMcpDetectAnomalies", "finMcpEquipTopology",
+                "finMcpDescribeEntity", "finMcpListCases",
+                "finMcpRecallCases", "finMcpListNotifications",
+                "finMcpMarkNotificationRead",
+                # coolMatrix safety/diagnosis
+                "cmSafety*", "cmFsmStatus*", "cmCopAnomaly*",
+                "cmListActionAudit*", "cmGetFaultLog*",
+                "cmLogFault*", "cmDiagnostics*",
+            ],
+        },
+        "control": {
+            "description": "控制写入 — 受控写入、审批回退、工单管理、策略执行",
+            "tool_names": [
+                "finMcpProposeWrite", "finMcpApprove",
+                "finMcpApproveProposal", "finMcpApprovePackage",
+                "finMcpRollback", "finMcpListProposals",
+                "finMcpCreateWorkOrder", "finMcpCloseWorkOrder",
+                "finMcpListWorkOrders", "finMcpRejectProposal",
+                # coolMatrix control
+                "cmWritePoint*", "cmActivateStrategy*",
+                "cmStopStrategyDevices*", "cmSetControlMode*",
+                "cmEmergencyStop*", "cmReleaseEmergencyStop*",
+                "cmSetChiller*", "cmSetHeatPump*",
+                "cmStageUp*", "cmStageDown*",
+                "cmManualModeOverride*",
+            ],
+        },
+        "coolmatrix_admin": {
+            "description": "CoolMatrix 管理 — 站点/设备/策略配置、AI模型、许可证",
+            "tool_names": [
+                "cmGetSites*", "cmGetPlantTree*",
+                "cmGetAllEquipment*", "cmGetChillers*",
+                "cmGetCoolingTowers*", "cmGetChilledWaterPumps*",
+                "cmGetCondenserWaterPumps*", "cmGetHeatPumps*",
+                "cmReadEquip*", "cmAddChiller*",
+                "cmAddCoolingTower*", "cmAddPump*",
+                "cmDeleteEquip*", "cmUpdateEquipTags*",
+                "cmLicenseStatus*", "cmLicenseReload*",
+                "cmInstallLicense*", "cmHostId*",
+                "cmAiBoxStatus*", "cmAiModels*",
+                "cmAiInfer*", "cmAiPredict*",
+                "cmAiOptimize*", "cmAiModelActivate*",
+                "cmAiTrainJobList*", "cmAiBoxBuildPlantDataset*",
+                "cmCleanHistory*", "cmTopologyPush*",
+                "cmCreateAndBindBatch*", "cmCreateAndBindBatch*",
+                "cmTrimActionAudit*", "cmDeleteGroupStrategy*",
+                "cmRotateAllGroupsNative*", "cmWtfSnapshot*",
+                "cmFsmTick*", "cmStrategyMainLoop*",
+                "cmEngineAllowed*", "cmOptimizeTick*",
+                "cmPsoOptimize*", "cmPsoStatus*",
+                "cmChillerOptRunCycle*", "cmChillerOptProvision*",
+                "cmChillerOptRunCycle*",
+            ],
+        },
+        "admin": {
+            "description": "系统管理 — LLM配置、用量统计、调度任务、文档管理",
+            "tool_names": [
+                "finMcpSetLlm", "finMcpLlmStatus", "finMcpLlmTest",
+                "finMcpUsage", "finMcpHealth",
+                "finMcpListJobs", "finMcpSetJobEnabled",
+                "finMcpRunJob", "finMcpCreateCustomJob",
+                "finMcpListCustomJobs", "finMcpDeleteCustomJob",
+                "finMcpListDocs", "finMcpIngestDoc",
+                "finMcpIngestUrl", "finMcpDeleteDoc",
+                "finMcpRetrieveDocs", "finMcpListMemory",
+                "finMcpSetAgentConfig", "finMcpSetEmbed",
+                "finMcpSetAsr", "finMcpEval",
+                "finMcpEvalGuardrails", "finMcpEvalTrajectories",
+                "finMcpBatchSubmit", "finMcpBatchStatus",
+                "finMcpBatchResults",
+                # coolMatrix admin
+                "cmChillerOptReloadModel*", "cmChillerOptRunCycle*",
+            ],
+        },
+        "ai_chat": {
+            "description": "AI对话 — finCopilot 统一入口、聊天会话管理（推荐首选）",
+            "tool_names": [
+                "finCopilotAsk",
+                "finMcpChatStart", "finMcpChatPoll",
+                "finMcpChatCancel", "finMcpSaveChat",
+                "finMcpLoadChat", "finMcpListChats",
+                "finMcpDeleteChat",
+            ],
+        },
+    }
+
+    # Default active group — "base" tools are always included regardless
+    _active_group: str = "base"
+
+    # Names of tools that are always available (included in every group)
+    _BASE_TOOL_NAMES: set[str] = {
+        "about", "evalAxon", "readSites", "readById", "readRecord",
+        "readEquips", "readPoints", "readAll",
+        "batchCommitAdd", "commitUpdate", "commitRemove",
+        "getToolGroups", "setToolGroup",
+    }
+
+    @classmethod
+    def getToolGroups(cls) -> list[dict]:
+        """Return available tool groups with descriptions.
+
+        Returns:
+            List of {name, description, toolCount} dicts.
+        """
+        result = []
+        for name, g in cls.TOOL_GROUPS.items():
+            if name == "base":
+                continue
+            result.append({
+                "name": name,
+                "description": g["description"],
+            })
+        return result
+
+    @classmethod
+    def setActiveGroup(cls, group_name: str) -> str:
+        """Set the active tool group for filtering.
+
+        Args:
+            group_name: One of the group names in TOOL_GROUPS, or "all" for no filter.
+
+        Returns:
+            Confirmation message.
+        """
+        if group_name == "all":
+            cls._active_group = "all"
+            return "已切换到全部工具模式 (显示全部 531 个工具)"
+        if group_name in cls.TOOL_GROUPS:
+            cls._active_group = group_name
+            g = cls.TOOL_GROUPS[group_name]
+            return f"已切换到工具组: {group_name} ({g['description']})"
+        raise ValueError(f"未知工具组: {group_name}，可用组: {', '.join(cls.TOOL_GROUPS.keys())}")
+
+    def _match_tool_group(self, tool_name: str, group_cfg: dict) -> bool:
+        """Check if a tool name matches a group's tool_names patterns.
+
+        Supports exact match and prefix wildcard (e.g. "cmSafety*" matches
+        "cmSafetyStatus", "cmSafetyClear", etc.).
+        """
+        for pattern in group_cfg.get("tool_names", []):
+            if pattern.endswith("*"):
+                prefix = pattern[:-1]
+                if tool_name.startswith(prefix):
+                    return True
+            elif tool_name == pattern:
+                return True
+        return False
+
+    def _get_group_tool_names(self, group_name: str) -> set[str]:
+        """Get the set of tool names (expanded patterns) for a group.
+
+        Args:
+            group_name: Group name or "all".
+
+        Returns:
+            Set of tool name strings.  If group_name is "all", returns
+            an empty set (meaning no filter).
+        """
+        if group_name == "all":
+            return set()  # empty = no filter
+
+        names: set[str] = set()
+        # Always include base tools
+        names.update(self._BASE_TOOL_NAMES)
+
+        # Include tools from the active group
+        cfg = self.TOOL_GROUPS.get(group_name)
+        if cfg:
+            for pattern in cfg.get("tool_names", []):
+                if pattern.endswith("*"):
+                    # Can't expand prefix patterns here — handled at filter time
+                    names.add(pattern)
+                else:
+                    names.add(pattern)
+        return names
+
+    def fetchMcpTools(self, group: Optional[str] = None) -> list[types.Tool]:
+        """Fetch MCP tools from SkySpark, with group filtering (SB-09).
+
+        If *group* is None, uses the currently active group
+        (``self._active_group``).  If *group* is "all" or no group is
+        active, all tools are returned.
 
         Sources (in priority order):
           1. DB func records tagged with skyforgeMcp
@@ -639,7 +907,7 @@ class SkySpark:
         hammering the FIN server on every tools/list call.
 
         Returns:
-            List of MCP Tool objects, deduplicated by name.
+            List of MCP Tool objects, filtered by active group.
         """
         # ---- SB-07: Check cache first ----
         now = time.time()
@@ -683,6 +951,23 @@ class SkySpark:
 
             result_tools = hgrid_to_tools(hgrid)
 
+            # ---- SB-09: Apply group filter ----
+            resolved_group = group if group is not None else self._active_group
+            if resolved_group and resolved_group != "all":
+                group_cfg = self.TOOL_GROUPS.get(resolved_group)
+                if group_cfg:
+                    filtered: list[types.Tool] = []
+                    for tool in result_tools:
+                        name = tool.name
+                        # Always include base tools and the group-management tools
+                        if name in self._BASE_TOOL_NAMES:
+                            filtered.append(tool)
+                            continue
+                        # Check if tool matches any pattern in the group
+                        if self._match_tool_group(name, group_cfg):
+                            filtered.append(tool)
+                    result_tools = filtered
+
             # ---- Update cache (SB-07) ----
             self._tool_cache = result_tools
             self._tool_cache_time = now
@@ -698,18 +983,138 @@ class SkySpark:
             return hgrid_to_tools(hgrid)
 
     def fetchMcpPrompts(self) -> list[types.Prompt]:
-        """Fetch MCP prompts from SkySpark via eval
+        """Build MCP prompts for finCopilot capability domains (SB-11)
+
+        Returns prompts for each of the 9 finCopilot capability domains plus
+        common workflow templates.  These are built entirely in Python so that
+        they work without depending on the FIN-side fetchMcpPrompts() Axon
+        function (which only returns a hardcoded example in setup.zinc).
 
         Returns:
-            List of MCP prompts
+            List of MCP Prompt objects
         """
-        try:
-            result = self.eval("fetchMcpPrompts()")
-            from .converters import hgrid_to_prompts
-            return hgrid_to_prompts(result)
-        except Exception:
-            # No prompts defined in SkySpark – return empty list gracefully
-            return []
+        # Domain-specific prompts — each maps to finCopilot's capabilityId
+        domain_prompts: list[dict] = [
+            {
+                "name": "fin_general_assistant",
+                "description": "通用运维助手 — 回答楼宇设备运行、查询、控制等日常问题",
+                "arguments": [
+                    {"name": "question", "description": "用户问题", "required": True},
+                ],
+            },
+            {
+                "name": "fin_hvac_diagnosis",
+                "description": "暖通空调诊断 — 分析AHU/冷机/冷却塔/水泵运行状态，诊断效率下降或故障原因",
+                "arguments": [
+                    {"name": "equipRef", "description": "设备引用ID（如AHU-101、Chiller-01）", "required": True},
+                    {"name": "range", "description": "分析时间范围，如 'thisWeek', 'thisMonth'", "required": False},
+                ],
+            },
+            {
+                "name": "fin_me_equipment",
+                "description": "机电设备 — 查询风机/水泵/照明等机电设备的状态与参数",
+                "arguments": [
+                    {"name": "equipRef", "description": "设备引用ID", "required": True},
+                ],
+            },
+            {
+                "name": "fin_space_comfort",
+                "description": "空间舒适度 — 分析室内温湿度/CO₂/光照等环境参数，评估舒适度",
+                "arguments": [
+                    {"name": "spaceRef", "description": "空间/区域引用ID", "required": True},
+                    {"name": "range", "description": "分析时间范围", "required": False},
+                ],
+            },
+            {
+                "name": "fin_bas_control",
+                "description": "楼宇自控 — 查看楼控系统运行参数、控制序列、设备启停状态",
+                "arguments": [
+                    {"name": "equipRef", "description": "设备引用ID", "required": False},
+                    {"name": "filter", "description": "Haystack过滤器，如 'ahu and equip'", "required": False},
+                ],
+            },
+            {
+                "name": "fin_fdd_diagnosis",
+                "description": "故障诊断 — 自动分析报警、诊断设备故障原因、建议修复措施",
+                "arguments": [
+                    {"name": "equipRef", "description": "设备引用ID", "required": False},
+                    {"name": "severity", "description": "报警严重级别过滤", "required": False},
+                ],
+            },
+            {
+                "name": "fin_energy_analysis",
+                "description": "能效分析 — 分析能耗数据、计算KPI、找节能机会、碳排放核算",
+                "arguments": [
+                    {"name": "range", "description": "分析时间范围，如 'thisMonth', 'lastQuarter'", "required": True},
+                    {"name": "equipRef", "description": "指定设备分析（可选）", "required": False},
+                ],
+            },
+            {
+                "name": "fin_wellness",
+                "description": "健康舒适 — 分析室内环境质量(IEQ)、热舒适、空气质量等健康指标",
+                "arguments": [
+                    {"name": "spaceRef", "description": "空间/区域引用ID", "required": True},
+                    {"name": "range", "description": "分析时间范围", "required": False},
+                ],
+            },
+            {
+                "name": "fin_report_generation",
+                "description": "报告生成 — 自动生成运行报告/能效报告/诊断报告",
+                "arguments": [
+                    {"name": "reportType", "description": "报告类型: energy/operation/diagnosis/custom", "required": True},
+                    {"name": "range", "description": "报告覆盖时间范围", "required": True},
+                    {"name": "equipRef", "description": "指定设备范围（可选）", "required": False},
+                ],
+            },
+            {
+                "name": "fin_query_entities",
+                "description": "语义查询 — 用自然语言查询楼宇设备、点位和空间信息",
+                "arguments": [
+                    {"name": "query", "description": "查询描述，如 '所有AHU设备'、'3楼的温度点位'", "required": True},
+                    {"name": "limit", "description": "最大返回数量", "required": False},
+                ],
+            },
+            {
+                "name": "fin_work_order",
+                "description": "工单管理 — 创建/查询/关闭工单，跟踪维修进度",
+                "arguments": [
+                    {"name": "action", "description": "操作: list/create/close", "required": True},
+                    {"name": "workOrderId", "description": "工单ID（close时必填）", "required": False},
+                    {"name": "description", "description": "工单描述（create时必填）", "required": False},
+                ],
+            },
+            {
+                "name": "fin_alarm_review",
+                "description": "报警审查 — 查看当前激活报警，分析报警根因",
+                "arguments": [
+                    {"name": "severity", "description": "严重级别: critical/urgent/warning/info", "required": False},
+                    {"name": "range", "description": "时间范围", "required": False},
+                ],
+            },
+        ]
+
+        # Build Prompt objects
+        prompts: list[types.Prompt] = []
+        for dp in domain_prompts:
+            args_list: list[types.PromptArgument] = []
+            for a in dp.get("arguments", []):
+                args_list.append(
+                    types.PromptArgument(
+                        name=a["name"],
+                        description=a.get("description", ""),
+                        required=a.get("required", False),
+                    )
+                )
+            prompts.append(
+                types.Prompt(
+                    name=dp["name"],
+                    description=dp["description"],
+                    arguments=args_list,
+                )
+            )
+
+        logger.info(f"Built {len(prompts)} finCopilot prompts (SB-11)")
+        return prompts
 
     def handleToolCall(self, name: str, params: Union[Dict[str, Any], List[Any]], params_kind: str = "Dict", params_order: List[str] = None) -> "HGrid":
         """Execute tool call on SkySpark
