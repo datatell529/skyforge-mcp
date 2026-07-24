@@ -1,0 +1,17 @@
+# Skill 注册表
+skills:
+  query-basics:
+    file: query-basics.yaml
+    doc: 基础数据查询方法
+  axon-basics:
+    file: axon-basics.yaml
+    doc: Axon 语言基础
+  xeto-basics:
+    file: xeto-basics.yaml
+    doc: Xeto 规范操作
+  hvac-diagnosis:
+    file: hvac-diagnosis.yaml
+    doc: 暖通空调设备诊断
+  energy-analysis:
+    file: energy-analysis.yaml
+    doc: 能效分析

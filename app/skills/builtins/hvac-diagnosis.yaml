@@ -1,0 +1,26 @@
+name: hvac-diagnosis
+doc: 暖通空调设备分析与诊断
+keywords: [hvac, chiller, ahu, vav, 暖通, 空调, 诊断]
+suggested_group: diagnosis
+include:
+  - query-basics
+  - axon-basics
+prompt: |
+  ## HVAC 诊断工作流
+
+  1. **定位设备** — 用 `evalAxon("readAll(equip and (chiller or ahu or fcu))")` 查找 HVAC 设备
+  2. **查看详情** — 用 `readById(id)` 或 `call("finMcpDescribeEntity", [ref])` 了解设备详情
+  3. **读取当前值** — 读取关键点位（温度、压力、启停状态、电流）的当前值
+  4. **查看趋势** — 读取历史数据，识别异常模式（持续上升/下降、波动过大）
+  5. **关联报警** — 查看设备关联的当前报警
+  6. **综合诊断** — 根据现象判断根因
+
+  ### 常见诊断规则
+  - 供回水温差小 + 电流低 → 可能水泵故障或阀门未开
+  - 冷凝压力高 + 电流高 → 冷凝器脏堵或冷却塔效率下降
+  - 送风温度偏高 + 回水温差大 → 盘管脏堵或水流量不足
+  - 设备频繁启停 → 可能控制参数设置不当或负载波动大
+
+  ### 生产环境提示
+  - 写操作（如下发设定点、启停设备）请使用 `evalAxonWrite` 并确认
+  - 在 FIN MCP 中可用 finSafetyLock 锁定关键设备防止误操作

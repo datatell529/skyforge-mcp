@@ -1,0 +1,23 @@
+name: axon-basics
+doc: Axon 语言基础
+keywords: [axon, 脚本, 函数, func]
+prompt: |
+  ## Axon 语言基础
+
+  Axon 是 SkySpark 的函数式脚本语言。
+
+  ### 常用函数
+  - `read(filter)` — 读取匹配的记录
+  - `readAll(filter)` — 读取所有匹配记录
+  - `readById(id)` — 按 ID 读取
+  - `hisRead(rec, start, end, interval)` — 历史数据
+  - `commit(rec)` — 创建/更新记录
+  - `about()` — 服务器信息
+
+  ### 调用自定义函数
+  使用 `call("funcName", [args])` 调用 SkySpark 中定义的 Axon 函数。
+  例如: `call("finMcpQuery", ["equip and ahu", 20])`
+
+  ### 注意
+  - 推荐使用 `evalAxon` 工具执行 Axon 表达式
+  - 写操作请使用 `evalAxonWrite`（需要 confirm=true 确认）

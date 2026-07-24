@@ -1,8 +1,11 @@
 import logging
 import os
+import time
 from typing import Any, Dict, List, Union, cast
 import mcp.types as types
-from phable import Grid, GridCol, open_haxall_client
+from phable import Grid, GridCol
+from phable.auth.scram import ScramScheme
+from phable.haxall_client import HaxallClient
 from dotenv import load_dotenv
 from .grid import HGrid
 from ..tools.axon_tools import HARDCODED_TOOLS
@@ -73,21 +76,35 @@ class SkySpark:
         self.username: str = username
         self.password: str = password
 
+        # One-time SCRAM auth + persistent client
+        scram = ScramScheme(uri, username, password, "json")
+        self._auth_token = scram.get_auth_token()
+        self._auth_time = time.time()
+        self._auth_ttl = 3600.0
+        self._client = HaxallClient(uri, self._auth_token, content_type="json")
+
         # Test connection
-        self._test_connection()
+        self._client.about()
 
     def _test_connection(self) -> None:
         """Test connection via about() call"""
-        with self._get_client() as client:
-            _ = client.about()
+        self._client.about()
 
-    def _get_client(self):
-        """Get client context manager for internal use"""
-        return open_haxall_client(
-            self.uri,
-            self.username,
-            self.password,
-        )
+    def _ensure_auth(self) -> None:
+        """Re-authenticate if token is near expiry (80% of TTL)"""
+        if time.time() - self._auth_time > self._auth_ttl * 0.8:
+            scram = ScramScheme(self.uri, self.username, self.password, "json")
+            self._auth_token = scram.get_auth_token()
+            self._auth_time = time.time()
+            self._client.close()
+            self._client = HaxallClient(self.uri, self._auth_token, content_type="json")
+
+    def close(self) -> None:
+        """Close the persistent client session"""
+        try:
+            self._client.close()
+        except Exception:
+            pass
 
     def eval(self, expression: str) -> HGrid: 
         """Evaluate an Axon expression on the SkySpark server and always
@@ -101,12 +118,12 @@ class SkySpark:
             an empty grid wrapper is returned to keep call-sites safe.
         """
         try:
-            with self._get_client() as client:
-                result = client.eval(expression)
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                logger.warning("Eval returned non-grid result; returning empty grid fallback")
-                return HGrid(Grid(meta={}, cols=[], rows=[]))
+            self._ensure_auth()
+            result = self._client.eval(expression)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            logger.warning("Eval returned non-grid result; returning empty grid fallback")
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
         except Exception:
             logger.error(f"Failed to eval Axon expression: {expression}", exc_info=True)
             raise
