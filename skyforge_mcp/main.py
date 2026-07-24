@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import mcp.types as types
@@ -42,6 +43,11 @@ except Exception as e:
     logger.error(f"✗ FAILED TO INITIALIZE SKYSPARK CLIENT: {e}")
     skyspark = None
 
+# Compute absolute paths (PM2 may run from different CWD)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SKILLS_DIR = os.path.join(_PROJECT_ROOT, "app", "skills", "builtins")
+_MEMORY_PATH = os.path.join(_PROJECT_ROOT, "var", "memory.json")
+
 # ── Initialize Skill engine + Memory + Prompt builder ────────────
 skill_registry = None
 memory_store = None
@@ -49,14 +55,15 @@ prompt_builder = None
 
 if skyspark:
     try:
-        loader = SkillLoader("app/skills/builtins")
+        os.makedirs(os.path.dirname(_MEMORY_PATH), exist_ok=True)
+        loader = SkillLoader(_SKILLS_DIR)
         skill_registry = SkillRegistry(loader).load()
         logger.info(f"✓ Skill engine loaded ({len(skill_registry.all())} skills)")
     except Exception as e:
         logger.warning(f"Skill engine init failed: {e}")
 
     try:
-        memory_store = MemoryStore("/var/skyforge-mcp/memory.json")
+        memory_store = MemoryStore(_MEMORY_PATH)
         logger.info("✓ Memory store initialized")
     except Exception as e:
         logger.warning(f"Memory store init failed: {e}")
@@ -67,7 +74,6 @@ if skyspark:
     )
 
 # Tool lookup dictionaries
-CORE_TOOLS: Dict[str, types.Tool] = {}  # Phase 2 core tools
 AXON_TOOLS_BY_ID: Dict[str, types.Tool] = {}  # Auto-discovered axon tools
 AXON_PROMPTS_BY_NAME: Dict[str, types.Prompt] = {}
 
