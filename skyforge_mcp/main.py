@@ -114,6 +114,20 @@ def _build_core_tools() -> list[types.Tool]:
                 "required": ["expr"],
             },
         ),
+        types.Tool(
+            name="commitAdd",
+            description="添加新记录到数据库。使用 Haystack commit API 直接写入，比 evalAxonWrite 更可靠。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "records": {
+                        "type": "string",
+                        "description": "JSON 数组字符串，每条记录包含标签定义。标记用 true 表示。示例: [{\"dis\":\"Chiller-01\", \"chiller\":true, \"equip\":true, \"siteRef\":\"@p:xxx\"}]",
+                    },
+                },
+                "required": ["records"],
+            },
+        ),
         # Help
         types.Tool(
             name="helpFunc",
@@ -258,9 +272,35 @@ def _build_core_tools() -> list[types.Tool]:
 
 # ── Tool handlers ─────────────────────────────────────────────────
 
+
+def _handle_commit_add(args: Dict[str, Any]) -> str:
+    """Handle commitAdd tool: parse JSON records and write via SkySpark client."""
+    records_json = args.get("records", "[]")
+    try:
+        records = json.loads(records_json)
+        if not isinstance(records, list):
+            return json.dumps({"error": True, "message": "records 必须是 JSON 数组"})
+    except json.JSONDecodeError as e:
+        return json.dumps({"error": True, "message": f"JSON 解析失败: {e}"})
+
+    if not records:
+        return json.dumps({"error": True, "message": "records 数组不能为空"})
+
+    if skyspark is None:
+        return json.dumps({"error": True, "message": "SkySpark 客户端未初始化"})
+
+    try:
+        result = skyspark.commit_add(records)
+        return json.dumps({"success": True, "count": len(records)})
+    except Exception as e:
+        logger.error(f"commit_add failed: {e}", exc_info=True)
+        return json.dumps({"error": True, "message": str(e)})
+
+
 CORE_TOOL_HANDLERS = {
     "evalAxon": lambda args, meta: evalAxon(skyspark, args.get("expr", "")),
     "evalAxonWrite": lambda args, meta: evalAxonWrite(skyspark, args.get("expr", ""), args.get("confirm", False)),
+    "commitAdd": lambda args, meta: _handle_commit_add(args),
     "helpFunc": lambda args, meta: helpFunc(skyspark, args.get("name", "")),
     "helpSkill": lambda args, meta: helpSkill(skill_registry, args.get("name", "")),
     "helpDoc": lambda args, meta: helpDoc(skyspark, args.get("uri", "")),

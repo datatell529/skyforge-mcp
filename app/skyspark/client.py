@@ -128,6 +128,39 @@ class SkySpark:
             logger.error(f"Failed to eval Axon expression: {expression}", exc_info=True)
             raise
 
+    def commit_add(self, records: list) -> HGrid:
+        """Add records via Haystack commit API (not eval)
+
+        Uses phable's native commit_add which calls the REST API directly,
+        more reliable than eval-based commit for write operations.
+
+        Args:
+            records: List of dicts with tag definitions
+
+        Returns:
+            HGrid with created records
+        """
+        from phable import Marker as PhMarker
+        try:
+            # Convert marker-like values
+            processed = []
+            for rec in records:
+                r = {}
+                for k, v in rec.items():
+                    if isinstance(v, str) and v == "marker":
+                        r[k] = PhMarker()
+                    else:
+                        r[k] = v
+                processed.append(r)
+
+            result = self._client.commit_add(processed)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
+        except Exception:
+            logger.error(f"commit_add failed", exc_info=True)
+            raise
+
     def fetchMcpTools(self) -> list[types.Tool]:
         """Fetch MCP tools from SkySpark by reading func records
 
