@@ -62,7 +62,8 @@ def clean_value(v: Any) -> Any:
     if isinstance(v, RemoveExt):
         return None
     if isinstance(v, NumberExt):
-        return f"{v.val} {v.unit}" if v.unit else v.val
+        val = float(v.val) if v.val is not None else None
+        return f"{val} {v.unit}" if (v.unit and val is not None) else val
     if isinstance(v, RefExt):
         result = f"@{v.val}"
         if v.dis:
@@ -73,7 +74,8 @@ def clean_value(v: Any) -> Any:
     if isinstance(v, SymbolExt):
         return f"^{v.val}"
     if isinstance(v, CoordExt):
-        return {"lat": v.lat, "lng": v.lng}
+        return {"lat": float(v.lat) if v.lat else None,
+                "lng": float(v.lng) if v.lng else None}
     if isinstance(v, DateTimeExt):
         return str(v.val) if v.val else None
     if isinstance(v, (DateExt, TimeExt)):
