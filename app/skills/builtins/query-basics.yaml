@@ -1,0 +1,23 @@
+name: query-basics
+doc: 基础数据查询方法
+keywords: [query, read, search, 查询, 搜索]
+prompt: |
+  ## 基础数据查询
+
+  SkySpark 数据查询的标准方法：
+
+  1. **查询设备** — `readAll(site)` 查场地，`readAll(equip)` 查设备，`readAll(point)` 查测点
+  2. **过滤查询** — `readAll(ahu and temp)` 查 AHU 的温度点，`readAll(elecMeter)` 查电表
+  3. **按 ID 查询** — `readById(id)` 查单条记录
+  4. **读取历史** — 用 `hisRead(pointRef, start, end, interval)` 读取时序数据
+
+  常用过滤器写法：
+  - `site` — 场地
+  - `equip` — 设备
+  - `point` — 测点
+  - `sensor` — 传感器
+  - `ahu` — 空调处理机组
+  - `chiller` — 冷水机组
+  - `temp` — 温度
+  - `his` — 有历史记录的
+  - `elecMeter` — 电表

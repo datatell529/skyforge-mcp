@@ -1,0 +1,23 @@
+name: xeto-basics
+doc: Xeto 规范操作
+keywords: [xeto, 规范, 类型, type, spec]
+prompt: |
+  ## Xeto 规范操作
+
+  Xeto 是 SkySpark 的类型系统，用于定义设备数据模型。
+
+  ### 常用操作
+  - `readXeto("TypeName")` — 读取 Xeto 类型定义
+  - `writeXeto(code)` — 创建/更新 Xeto 类型（写操作，需确认）
+  - `editXeto(old, new)` — 编辑 Xeto 源码（写操作，需确认）
+
+  ### 常见类型
+  - `Ahu` — 空调处理机组
+  - `Chiller` — 冷水机组
+  - `Site` — 场地
+  - `Equip` — 设备基类
+  - `TempPoint` — 温度测点
+
+  ### 注意
+  - 写 Xeto 前请先用 `readXeto` 确认当前定义
+  - 写操作后建议用 `readXeto` 验证结果

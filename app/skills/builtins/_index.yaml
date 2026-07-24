@@ -1,0 +1,28 @@
+skills:
+  query-basics:
+    file: query-basics.yaml
+    doc: 基础数据查询方法
+  axon-basics:
+    file: axon-basics.yaml
+    doc: Axon 语言基础
+  xeto-basics:
+    file: xeto-basics.yaml
+    doc: Xeto 规范操作
+  hvac-diagnosis:
+    file: hvac-diagnosis.yaml
+    doc: 暖通空调设备诊断
+  energy-analysis:
+    file: energy-analysis.yaml
+    doc: 能效分析
+  chiller-analysis:
+    file: chiller-analysis.yaml
+    doc: 冷机性能分析与诊断
+  coolmatrix-control:
+    file: coolmatrix-control.yaml
+    doc: CoolMatrix 冷站群控操作
+  alarm-review:
+    file: alarm-review.yaml
+    doc: 报警审查与分析
+  work-order:
+    file: work-order.yaml
+    doc: 工单全生命周期管理

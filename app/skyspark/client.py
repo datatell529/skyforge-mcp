@@ -5,7 +5,9 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Union, cast
 import mcp.types as types
-from phable import Grid, GridCol, open_haxall_client, Remove, Ref
+from phable import Grid, GridCol, Remove, Ref
+from phable.auth.scram import ScramScheme
+from phable.haxall_client import HaxallClient
 from phable.haystack_client import CallError, UnknownRecError
 from dotenv import load_dotenv
 from .grid import HGrid
@@ -77,21 +79,38 @@ class SkySpark:
         self.username: str = username
         self.password: str = password
 
-        # Test connection
-        self._test_connection()
+        # ── One-time SCRAM auth + persistent client (Phase 0.1) ──
+        scram = ScramScheme(uri, username, password, "json")
+        self._auth_token = scram.get_auth_token()
+        self._auth_time = time.time()
+        self._auth_ttl = 3600.0
+        self._client = HaxallClient(uri, self._auth_token, content_type="json")
 
-    def _test_connection(self) -> None:
-        """Test connection via about() call"""
-        with self._get_client() as client:
-            _ = client.about()
+        # Test connection
+        self._client.about()
+        logger.info("✓ FIN client initialized (SCRAM persistent session)")
+
+    def _ensure_auth(self) -> None:
+        """Re-authenticate if token is near expiry (80% of TTL)"""
+        if time.time() - self._auth_time > self._auth_ttl * 0.8:
+            scram = ScramScheme(self.uri, self.username, self.password, "json")
+            self._auth_token = scram.get_auth_token()
+            self._auth_time = time.time()
+            self._client.close()
+            self._client = HaxallClient(self.uri, self._auth_token, content_type="json")
+            logger.info("SCRAM token refreshed")
+
+    def close(self) -> None:
+        """Close the persistent client session"""
+        try:
+            self._client.close()
+        except Exception:
+            pass
 
     def _get_client(self):
-        """Get client context manager for internal use"""
-        return open_haxall_client(
-            self.uri,
-            self.username,
-            self.password,
-        )
+        """Return the persistent client instance (no more per-call SCRAM)"""
+        self._ensure_auth()
+        return self._client
 
     def eval(self, expression: str, operation_type: str = "read") -> HGrid:
         """Evaluate an Axon expression on the SkySpark server and always
@@ -108,12 +127,12 @@ class SkySpark:
             an empty grid wrapper is returned to keep call-sites safe.
         """
         try:
-            with self._get_client() as client:
-                result = client.eval(expression)
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                logger.warning("Eval returned non-grid result; returning empty grid fallback")
-                return HGrid(Grid(meta={}, cols=[], rows=[]))
+            client = self._get_client()
+            result = client.eval(expression)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            logger.warning("Eval returned non-grid result; returning empty grid fallback")
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
         except CallError:
             if operation_type == "write":
                 # FIN 3.1.5 quirk: write operations sometimes return CallError
@@ -137,11 +156,11 @@ class SkySpark:
     def batch_commit_add(self, zinc_str: str) -> HGrid:
         axon_expr = f"ioReadZinc({to_axon(zinc_str)}).map(ioWriteTrio).commit()"
         try:
-            with self._get_client() as client:
-                result = client.eval(axon_expr)
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                return HGrid(Grid(meta={}, cols=[], rows=[]))
+            client = self._get_client()
+            result = client.eval(axon_expr)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
         except CallError as e:
             return self._handle_fin_315_call_error(e, "batch_commit_add")
         except Exception:
@@ -163,11 +182,11 @@ class SkySpark:
         if isinstance(records, dict):
             records = [records]
         try:
-            with self._get_client() as client:
-                result = client.commit_add(records)
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                return HGrid(Grid(meta={}, cols=[], rows=[]))
+            client = self._get_client()
+            result = client.commit_add(records)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
         except Exception:
             logger.error("commit_add failed", exc_info=True)
             raise
@@ -198,25 +217,25 @@ class SkySpark:
         """
         rid = str(ref_id).split(" (")[0].lstrip("@")
         try:
-            with self._get_client() as client:
-                # Step 1: Read current record
-                ref = Ref(rid)
-                current = client.read_by_id(ref, checked=True)
+            client = self._get_client()
+            # Step 1: Read current record
+            ref = Ref(rid)
+            current = client.read_by_id(ref, checked=True)
 
-                # Step 2: Apply changes (use a copy to avoid side effects)
-                updated = dict(current)
-                for k, v in tags.items():
-                    if v is None:
-                        # None → Remove marker (Haystack方式删除tag)
-                        updated[k] = Remove()
-                    else:
-                        updated[k] = v
+            # Step 2: Apply changes (use a copy to avoid side effects)
+            updated = dict(current)
+            for k, v in tags.items():
+                if v is None:
+                    # None → Remove marker (Haystack方式删除tag)
+                    updated[k] = Remove()
+                else:
+                    updated[k] = v
 
-                # Step 3: Commit update
-                result = client.commit_update(updated)
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                return HGrid(Grid(meta={}, cols=[], rows=[]))
+            # Step 3: Commit update
+            result = client.commit_update(updated)
+            if isinstance(result, Grid):
+                return HGrid(result)
+            return HGrid(Grid(meta={}, cols=[], rows=[]))
         except Exception:
             logger.error(f"commit_update failed for ref_id={rid}", exc_info=True)
             raise
@@ -240,14 +259,14 @@ class SkySpark:
         """
         rid = str(ref_id).split(" (")[0].lstrip("@")
         try:
-            with self._get_client() as client:
-                # Step 1: Read current record
-                ref = Ref(rid)
-                current = client.read_by_id(ref, checked=True)
-                # commit_remove requires id + mod
-                remove_rec = {"id": current.get("id"), "mod": current.get("mod")}
-                result = client.commit_remove(remove_rec)
-                return HGrid(Grid(meta={"removed": rid}, cols=[GridCol(name="id")], rows=[]))
+            client = self._get_client()
+            # Step 1: Read current record
+            ref = Ref(rid)
+            current = client.read_by_id(ref, checked=True)
+            # commit_remove requires id + mod
+            remove_rec = {"id": current.get("id"), "mod": current.get("mod")}
+            result = client.commit_remove(remove_rec)
+            return HGrid(Grid(meta={"removed": rid}, cols=[GridCol(name="id")], rows=[]))
         except UnknownRecError:
             logger.warning(f"commit_remove: record not found: {rid}")
             raise
@@ -273,12 +292,12 @@ class SkySpark:
         # Strip leading @ if present and convert to string
         rid = str(ref_id).split(" (")[0].lstrip("@")
         try:
-            with self._get_client() as client:
-                ref = Ref(rid)
-                result = client.read_by_id(ref, checked=True)
-                # Convert dict result to a single-row grid
-                grid = Grid(meta={}, cols=[GridCol(name=k) for k in result.keys()], rows=[result])
-                return HGrid(grid)
+            client = self._get_client()
+            ref = Ref(rid)
+            result = client.read_by_id(ref, checked=True)
+            # Convert dict result to a single-row grid
+            grid = Grid(meta={}, cols=[GridCol(name=k) for k in result.keys()], rows=[result])
+            return HGrid(grid)
         except UnknownRecError:
             logger.warning(f"read_record: record not found: {rid}")
             raise

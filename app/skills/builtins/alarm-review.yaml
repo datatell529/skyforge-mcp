@@ -1,0 +1,20 @@
+name: alarm-review
+doc: 报警审查与分析
+keywords: [alarm, 报警, 故障, alert, 告警]
+suggested_group: diagnosis
+include:
+  - query-basics
+prompt: |
+  ## 报警审查工作流
+
+  1. **查看当前报警** — `finMcpListAlarms()` 获取所有激活报警
+  2. **严重报警** — `finMcpCriticalAlarms()` 查看关键报警
+  3. **报警详情** — 用 `finMcpDescribeEntity(ref)` 查看报警关联设备
+  4. **根因分析** — 查看设备当前值和历史趋势，判断报警根因
+  5. **处理建议** — 给出明确的处理措施，必要时创建工单
+
+  ### 报警分级
+  - critical: 需要立即处理
+  - urgent: 需要尽快处理
+  - warning: 需要关注
+  - info: 通知信息

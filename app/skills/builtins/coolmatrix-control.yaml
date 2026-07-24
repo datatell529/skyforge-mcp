@@ -1,0 +1,24 @@
+name: coolmatrix-control
+doc: CoolMatrix 冷站群控操作
+keywords: [coolmatrix, 群控, 冷站, 策略, control]
+suggested_group: control
+include:
+  - query-basics
+prompt: |
+  ## CoolMatrix 控制操作工作流
+
+  ### 重要安全规则
+  - **写操作前必须检查安全联锁状态** — 用 `finSafetyStatus(equipRef)` 确认设备未锁定
+  - **控制策略谨慎执行** — 推荐先用 `cmSafetyStatus` 查看设备安全状态
+
+  ### 常用操作
+  1. **查看站点** — `cmGetSites()` / `cmGetPlantTree(siteRef)`
+  2. **查看设备** — `cmGetAllEquipment(siteRef)` / `cmGetChillers(siteRef)`
+  3. **运行状态** — `cmChillerPerfNow(chillerRef)` / `cmPlantCopNow(siteRef)`
+  4. **策略控制** — `cmActivateStrategy(strategyRef)` / `cmStopStrategyDevices(strategyRef)`
+  5. **写入控制** — `cmWritePoint(pointRef, value, reason)`（需先用 `finSafetyStatus` 确认设备状态）
+
+  ### 安全提醒
+  - 锁定设备: `finSafetyLock(equipRef)`
+  - 解锁设备: `finSafetyUnlock(equipRef)`
+  - 查看状态: `finSafetyStatus(equipRef)`

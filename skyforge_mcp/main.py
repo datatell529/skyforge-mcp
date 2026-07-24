@@ -1,12 +1,15 @@
 """SkySpark MCP Server - Model Context Protocol server for SkySpark/Haxall systems.
 
-Provides dynamic MCP tools from SkySpark Axon functions and prompts.
-Supports both stdio and HTTP/SSE transports for flexible integration
-with MCP clients like Claude Desktop, Cline, and custom applications.
+FIN MCP (SkyBridge) with Phase 3 enhancements:
+- Skill engine + Memory + Safety interlock
+- finEval / finEvalWrite with prefix whitelist
+- finHelp / finSkillSearch / finToolSuggest
+- finSafetyLock / finSafetyUnlock / finSafetyStatus
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +18,17 @@ from mcp.server.fastmcp import FastMCP
 import jsonschema
 
 from app.skyspark.client import SkySpark
+from app.skills.loader import SkillLoader
+from app.skills.registry import SkillRegistry
+from app.memory.store import MemoryStore
+from app.prompts.builder import PromptBuilder
+
+# ── Phase 3 FIN tools ─────────────────────────────────────────────
+from app.tools.fin_eval_tools import finEval, finEvalWrite
+from app.tools.fin_help_tools import finHelp, finToolSuggest
+from app.tools.fin_skill_tools import finSkillSearch
+from app.tools.fin_memory_tools import finMemory, finMemoryAppend
+from app.tools.fin_safety_tools import finSafetyLock, finSafetyUnlock, finSafetyStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +37,7 @@ logger = logging.getLogger(__name__)
 # LLM_NOTE: Initialize SkySpark client with error handling
 try:
     skyspark = SkySpark()
-    logger.info("✓ SkySpark client initialized successfully")
+    logger.info("✓ FIN client initialized (SCRAM persistent session)")
 except Exception as e:  # noqa: BLE001 - surface clear initialization failure
     logger.error(f"✗ FAILED TO INITIALIZE SKYSPARK CLIENT: {e}")
     logger.error(
@@ -31,10 +45,34 @@ except Exception as e:  # noqa: BLE001 - surface clear initialization failure
     )
     skyspark = None
 
-# Tool and prompt lookups - updated dynamically on each list call
-# LLM_NOTE: Axon tools only, no basic tools
+# ── Initialize Skill engine + Memory + Prompt builder ────────────
+skill_registry = None
+memory_store = None
+prompt_builder = None
+
+if skyspark:
+    try:
+        loader = SkillLoader("app/skills/builtins")
+        skill_registry = SkillRegistry(loader).load()
+        logger.info(f"✓ Skill engine loaded ({len(skill_registry.all())} skills)")
+    except Exception as e:
+        logger.warning(f"Skill engine init failed: {e}")
+
+    try:
+        memory_store = MemoryStore("/var/skyforge-mcp-fin/memory.json")
+        logger.info("✓ Memory store initialized")
+    except Exception as e:
+        logger.warning(f"Memory store init failed: {e}")
+
+    prompt_builder = PromptBuilder(
+        skill_registry=skill_registry,
+        memory_store=memory_store,
+    )
+
+# Tool and prompt lookups
 AXON_TOOLS_BY_ID: Dict[str, types.Tool] = {}
 AXON_PROMPTS_BY_NAME: Dict[str, types.Prompt] = {}
+FIN_CORE_TOOL_HANDLERS: Dict[str, callable] = {}
 
 mcp = FastMCP(
     name="skyforge-mcp-fin",
@@ -43,6 +81,129 @@ mcp = FastMCP(
     stateless_http=True,
 )
 
+
+# ── FIN Core tool definitions (Phase 3) ──────────────────────────
+
+_FIN_CORE_TOOL_DEFS: list[types.Tool] = [
+    types.Tool(
+        name="finEval",
+        description="在 FIN 范围内执行只读 Axon 查询。只允许 finMcp*/cm*/chillerOpt* 函数。返回值已清洗。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "expr": {"type": "string", "description": "Axon 表达式，如 'readAll(equip)'"},
+            },
+            "required": ["expr"],
+        },
+    ),
+    types.Tool(
+        name="finEvalWrite",
+        description="在 FIN 范围内执行写入操作。需要 confirm=true 确认。语法预检+超时保护+审计。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "expr": {"type": "string", "description": "Axon 表达式"},
+                "confirm": {"type": "boolean", "description": "确认执行写入", "default": False},
+            },
+            "required": ["expr"],
+        },
+    ),
+    types.Tool(
+        name="finHelp",
+        description="查看 FIN 工具的使用说明和示例。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "tool_name": {"type": "string", "description": "工具名称"},
+            },
+            "required": ["tool_name"],
+        },
+    ),
+    types.Tool(
+        name="finToolSuggest",
+        description="根据任务描述推荐工具组合。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "任务描述，如 '查看冷机运行状态'、'能耗分析'"},
+            },
+            "required": ["task"],
+        },
+    ),
+    types.Tool(
+        name="finSkillSearch",
+        description="搜索 FIN 领域的 Skill。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词"},
+            },
+            "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="finMemory",
+        description="读取 FIN 项目记忆。记忆会自动注入 System Prompt。",
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    types.Tool(
+        name="finMemoryAppend",
+        description="追加 FIN 项目记忆。后续所有对话自动包含此信息。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "要追加的记忆内容"},
+            },
+            "required": ["text"],
+        },
+    ),
+    types.Tool(
+        name="finSafetyLock",
+        description="锁定一个设备，拒绝所有写入操作。物理设备操作前建议锁定。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "equipRef": {"type": "string", "description": "设备引用 ID，如 'CH-01'"},
+            },
+            "required": ["equipRef"],
+        },
+    ),
+    types.Tool(
+        name="finSafetyUnlock",
+        description="解锁一个设备，允许写入操作。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "equipRef": {"type": "string", "description": "设备引用 ID"},
+            },
+            "required": ["equipRef"],
+        },
+    ),
+    types.Tool(
+        name="finSafetyStatus",
+        description="查看设备安全联锁状态。不指定设备则返回全部。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "equipRef": {"type": "string", "description": "可选，设备引用 ID"},
+            },
+        },
+    ),
+]
+
+# Build handler map
+FIN_CORE_TOOL_HANDLERS = {
+    "finEval": lambda a: finEval(skyspark, a.get("expr", "")),
+    "finEvalWrite": lambda a: finEvalWrite(skyspark, a.get("expr", ""), a.get("confirm", False)),
+    "finHelp": lambda a: finHelp(a.get("tool_name", "")),
+    "finToolSuggest": lambda a: finToolSuggest(a.get("task", "")),
+    "finSkillSearch": lambda a: finSkillSearch(skill_registry, a.get("query", "")),
+    "finMemory": lambda a: finMemory(memory_store),
+    "finMemoryAppend": lambda a: finMemoryAppend(memory_store, a.get("text", "")),
+    "finSafetyLock": lambda a: finSafetyLock(a.get("equipRef", "")),
+    "finSafetyUnlock": lambda a: finSafetyUnlock(a.get("equipRef", "")),
+    "finSafetyStatus": lambda a: finSafetyStatus(a.get("equipRef")),
+}
 
 # ── SB-09: Group-management tool definitions ─────────────────────────────
 
@@ -76,31 +237,34 @@ _GROUP_TOOL_DEFS: list[types.Tool] = [
 async def _list_tools() -> List[types.Tool]:
     """Fetch tools from SkySpark, filtered by active group (SB-09).
 
-    LLM_NOTE: Returns only tools in the currently active group
-    (default: 'base' = basic tools only).  Use getToolGroups to
-    see available groups, and setToolGroup to switch.
+    Returns FIN core tools + group tools + axon tools.
+    FIN core tools are always visible (base).
     """
     global AXON_TOOLS_BY_ID
 
     if skyspark is None:
         logger.error("Cannot list tools: SkySpark client not initialized")
-        return []
+        return _FIN_CORE_TOOL_DEFS + _GROUP_TOOL_DEFS
 
     # Fetch tools filtered by active group
     axon_tools = skyspark.fetchMcpTools()
 
-    # Always include the group-management tools
-    for gt in _GROUP_TOOL_DEFS:
-        if gt.name not in {t.name for t in axon_tools}:
-            axon_tools.append(gt)
+    # Always include FIN core tools + group-management tools
+    fin_tool_names = {t.name for t in axon_tools}
+    for t in _FIN_CORE_TOOL_DEFS + _GROUP_TOOL_DEFS:
+        if t.name not in fin_tool_names:
+            axon_tools.append(t)
+            fin_tool_names.add(t.name)
 
     # Update lookup dictionary
     AXON_TOOLS_BY_ID = {tool.name: tool for tool in axon_tools}
 
     logger.info(
-        "tools/list: active_group=%s, returned %d tools",
+        "tools/list: active_group=%s, returned %d tools (%d FIN core + %d axon/group)",
         skyspark._active_group if hasattr(skyspark, "_active_group") else "?",
         len(axon_tools),
+        len(_FIN_CORE_TOOL_DEFS),
+        len(axon_tools) - len(_FIN_CORE_TOOL_DEFS) - len(_GROUP_TOOL_DEFS),
     )
     return axon_tools
 
@@ -346,10 +510,31 @@ def _validate_tool_arguments(tool: types.Tool, arguments: Dict[str, Any]) -> Opt
 
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     """
-    LLM_NOTE: Tool dispatcher – handles group-management tools and axon tools.
+    Tool dispatcher: FIN core tools → group tools → axon tools.
     """
     tool_name = req.params.name
     arguments = req.params.arguments or {}
+
+    # ── Phase 3: Handle FIN core tools ────────────────────────────────
+    handler = FIN_CORE_TOOL_HANDLERS.get(tool_name)
+    if handler:
+        try:
+            result_str = handler(arguments)
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text=result_str)],
+                ),
+            )
+        except Exception as e:
+            logger.error(f"FIN core tool '{tool_name}' failed: {e}", exc_info=True)
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text=json.dumps({
+                        "error": True, "message": f"工具执行失败: {str(e)[:200]}",
+                    }))],
+                    isError=True,
+                ),
+            )
 
     # ── SB-09: Handle group-management tools ──────────────────────────
     if tool_name == "getToolGroups":

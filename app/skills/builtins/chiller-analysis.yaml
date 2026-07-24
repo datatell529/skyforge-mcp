@@ -1,0 +1,18 @@
+name: chiller-analysis
+doc: 冷机性能分析与诊断
+keywords: [chiller, 冷机, 冷水机组, cop, 性能]
+suggested_group: diagnosis
+include:
+  - query-basics
+prompt: |
+  ## 冷机分析工作流
+
+  1. **定位冷机** — 用 `finMcpQuery` 或 `finEval("readAll(equip and chiller)")` 查找冷机
+  2. **设备详情** — 用 `finMcpDescribeEntity(ref)` 查看冷机参数
+  3. **当前状态** — 用 `finMcpReadCurrent` 读取蒸发器/冷凝器温度、电流、运行状态
+  4. **性能计算** — 用 `finMcpChillerPerformance` 或 `cmChillerPerfNow` 计算 COP
+  5. **趋势分析** — 用 `finMcpReadHistory` 查看历史 COP 趋势
+  6. **异常诊断**:
+     - COP 偏低 + 冷凝压力高 → 冷凝器脏堵或冷却塔问题
+     - COP 偏低 + 蒸发压力低 → 制冷剂泄漏或膨胀阀故障
+     - 频繁启停 → 负载匹配不当或控制参数需优化
