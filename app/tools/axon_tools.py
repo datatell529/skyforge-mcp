@@ -10,31 +10,55 @@ HARDCODED_TOOLS = [
         "help": "Returns a dict with server information",
         "params": {"kind": "Dict", "val": {}},
     },
-    # {
-    #     "name": "defCompTest",
-    #     "dis": "Test defComp function",
-    #     "help": "Tests a defComp function type",
-    #     "params": {
-    #         "kind": "Dict",
-    #         "vals": {
-    #             "stringInput": {"required": True, "kind": "Str", "help": "Test string input", "default": "hey"},
-    #             "numberInput": {"required": True, "kind": "Number", "help": "Test number input", "default": 12},
-    #             "refInput": {"required": True, "kind": "Ref", "help": "Test ref input"},
-    #         }
-    #     }
-    # },
-    # {
-    #     "name": "basicTest",
-    #     "dis": "Basic Func Test",
-    #     "help": "Test a basic function type",
-    #     "params": {
-    #         "kind": "List",
-    #         "vals": [
-    #             {"required": True, "name": "stringInput", "kind": "Str", "help": "Test string input", "default": "hey"},
-    #             {"required": True, "name": "numberInput", "kind": "Number", "help": "Test number input", "default": 12},
-    #             {"required": True, "name": "refInput", "kind": "Ref", "help": "Test ref input"},
-    #         ]
-    #     }
-    # },
+    {
+        "name": "evalAxon",
+        "dis": "Evaluate Axon Expression",
+        "help": "Execute any Axon expression on the SkySpark server and return results",
+        "params": {
+            "kind": "Dict",
+            "params": {
+                "expr": {
+                    "name": "expr",
+                    "kind": "Str",
+                    "help": "Axon expression to evaluate (e.g. 'read(site)' or 'readAll(equip)')",
+                    "required": True,
+                }
+            },
+        },
+    },
+    {
+        "name": "readSites",
+        "dis": "List Sites",
+        "help": "List all site records (buildings/facilities)",
+        "params": {"kind": "Dict", "val": {}},
+    },
+    {
+        "name": "readEquips",
+        "dis": "List Equipment",
+        "help": "List all equipment records",
+        "params": {"kind": "Dict", "val": {}},
+    },
+    {
+        "name": "readPoints",
+        "dis": "List Points",
+        "help": "List all point records",
+        "params": {"kind": "Dict", "val": {}},
+    },
+    {
+        "name": "readById",
+        "dis": "Read Record By ID",
+        "help": "Read a record by its reference ID",
+        "params": {
+            "kind": "Dict",
+            "params": {
+                "id": {
+                    "name": "id",
+                    "kind": "Str",
+                    "help": "Record reference ID (e.g. 'p:demo:r:xxx')",
+                    "required": True,
+                }
+            },
+        },
+    },
 ]
 

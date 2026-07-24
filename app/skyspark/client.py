@@ -1,9 +1,8 @@
 import logging
 import os
-from typing import cast
+from typing import Any, Dict, List, Union, cast
 import mcp.types as types
-from phable.kinds import Grid
-from phable.haxall_client import open_haxall_client
+from phable import Grid, GridCol, open_haxall_client
 from dotenv import load_dotenv
 from .grid import HGrid
 from ..tools.axon_tools import HARDCODED_TOOLS
@@ -113,43 +112,40 @@ class SkySpark:
             raise
 
     def fetchMcpTools(self) -> list[types.Tool]:
-        """Fetch MCP tools from SkySpark via eval
+        """Fetch MCP tools from SkySpark by reading func records
 
         Returns:
-            HGrid with MCP tools (with extended types)
+            List of MCP tools (with extended types)
         """
         try:
-            result = self.eval("fetchMcpTools()")
-            # Append hardcoded axon tools to grid rows
+            # Read all functions with skyforgeMcp tag from SkySpark
+            result = self.eval("readAll(func and skyforgeMcp)")
+            tools_from_db = []
+            for row in result.rows:
+                d = dict(row)
+                name = d.get("name", "")
+                if name and name not in ("fetchMcpTools", "fetchMcpPrompts"):
+                    tools_from_db.append({
+                        "name": name,
+                        "dis": d.get("name", name),
+                        "help": d.get("name", name),
+                        "params": {"kind": "Dict", "val": {}},
+                    })
+            # Add DB tools + hardcoded tools
+            all_tools = tools_from_db + list(HARDCODED_TOOLS)
+            fallback_grid = Grid(meta={}, cols=[GridCol(name="name")], rows=[])
+            hgrid = HGrid(fallback_grid)
+            for tool in all_tools:
+                hgrid.grid.rows.append(tool)
+            return hgrid_to_tools(hgrid)
+        except Exception as e:
+            logger.warning(f"Failed to read func records: {e}, falling back to hardcoded tools")
+            # Return only hardcoded tools
+            fallback_grid = Grid(meta={}, cols=[GridCol(name="name")], rows=[])
+            hgrid = HGrid(fallback_grid)
             for tool in HARDCODED_TOOLS:
-                result.grid.rows.append(tool)
-            return hgrid_to_tools(result)
-        except Exception:
-            # Fallback: if SkySpark project doesn't define fetchMcpTools(),
-            # expose the built-in tools only (e.g., 'about') so the client can still work.
-            fallback_tools: list[types.Tool] = []
-            for row in HARDCODED_TOOLS:
-                name_val = row.get("name")
-                name = str(name_val) if isinstance(name_val, (str, int, float)) else None
-                if not name:
-                    continue
-                title_val = row.get("dis", name)
-                title = str(title_val) if isinstance(title_val, (str, int, float)) else name
-                desc_val = row.get("help", "")
-                description = str(desc_val) if isinstance(desc_val, (str, int, float)) else ""
-                params_schema_raw = row.get("params", {"kind": "Dict", "val": {}})
-                params_schema = params_schema_raw if isinstance(params_schema_raw, dict) else {"kind": "Dict", "val": {}}
-                params_kind = str(params_schema.get("kind", "Dict"))
-                input_schema = convert_haystack_to_json_schema(params_schema)
-                tool = types.Tool(
-                    name=name,
-                    title=title,
-                    description=description,
-                    inputSchema=input_schema,
-                    _meta={"axon": True, "paramsKind": params_kind},
-                )
-                fallback_tools.append(tool)
-            return fallback_tools
+                hgrid.grid.rows.append(tool)
+            return hgrid_to_tools(hgrid)
 
     def fetchMcpPrompts(self) -> list[types.Prompt]:
         """Fetch MCP prompts from SkySpark via eval
@@ -164,9 +160,9 @@ class SkySpark:
         except Exception:
             # No prompts defined in SkySpark – return empty list gracefully
             return []
-        
-    def handleToolCall(self, name: str, params: dict[str, object] | list[object], params_kind: str = "Dict", params_order: list[str] | None = None) -> "HGrid":
-        """Execute tool call on SkySpark via call() function
+
+    def handleToolCall(self, name: str, params: Union[Dict[str, Any], List[Any]], params_kind: str = "Dict", params_order: List[str] = None) -> "HGrid":
+        """Execute tool call on SkySpark
 
         Args:
             name: Tool name to call
@@ -179,17 +175,25 @@ class SkySpark:
         """
         if params_order is None:
             params_order = []
-            
-        
-        # Local fallback for the built-in 'about' tool (doesn't require axon call())
-        if name == "about":
-            with self._get_client() as client:
-                result = client.about()
-                if isinstance(result, Grid):
-                    return HGrid(result)
-                # Construct an explicit empty grid (phable.Grid requires meta, cols, rows)
-                return HGrid(Grid(meta={}, cols=[], rows=[]))  # empty grid fallback
-        
+
+        # Map built-in tool names to Axon expressions
+        BUILTIN_TOOLS = {
+            "about": "about()",
+            "readSites": "readAll(site)",
+            "readEquips": "readAll(equip)",
+            "readPoints": "readAll(point)",
+        }
+
+        if name in BUILTIN_TOOLS:
+            expression = BUILTIN_TOOLS[name]
+            return self.eval(expression)
+        elif name == "evalAxon":
+            expr = params.get("expr", "") if isinstance(params, dict) else ""
+            return self.eval(expr)
+        elif name == "readById":
+            rid = params.get("id", "") if isinstance(params, dict) else ""
+            return self.eval(f'readById({rid})')
+
         # Build call expression based on params_kind
         if params_kind == "List":
             # For List kind: call("name", [param1, param2, ...])
@@ -215,11 +219,16 @@ class SkySpark:
             # For Dict kind (default): call("name", [dict])
             # Params dict is wrapped in array as single argument
             if isinstance(params, dict):
-                params_axon = to_axon(params)
+                if not params:
+                    # No params - pass empty list
+                    expression = f"call({to_axon(name)}, [])"
+                else:
+                    params_axon = to_axon(params)
+                    expression = f"call({to_axon(name)}, [{params_axon}])"
             else:
                 # If list provided but Dict expected, wrap in dict
                 params_axon = to_axon({"items": params})
-            expression = f"call({to_axon(name)}, [{params_axon}])"
+                expression = f"call({to_axon(name)}, [{params_axon}])"
         
         # Execute via eval (which will log on error) - return HGrid for dual format support
         return self.eval(expression)
