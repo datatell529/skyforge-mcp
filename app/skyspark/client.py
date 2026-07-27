@@ -140,15 +140,26 @@ class SkySpark:
         Returns:
             HGrid with created records
         """
-        from phable import Marker as PhMarker
+        from phable import Marker as PhMarker, Ref as PhRef
+        import re
         try:
-            # Convert marker-like values
+            # Convert marker-like values and Ref strings
+            _ref_pat = re.compile(r'^(@\S+?)(?:\s*\(([^)]*)\))?\s*$')
             processed = []
             for rec in records:
                 r = {}
                 for k, v in rec.items():
-                    if isinstance(v, str) and v == "marker":
+                    if isinstance(v, bool) and v is True:
                         r[k] = PhMarker()
+                    elif isinstance(v, str):
+                        if v == "marker":
+                            r[k] = PhMarker()
+                        elif v.startswith("@") and (m := _ref_pat.match(v)):
+                            # Strip leading @ for Haystack Ref format
+                            ref_id = m.group(1).lstrip("@")
+                            r[k] = PhRef(ref_id, m.group(2) or None)
+                        else:
+                            r[k] = v
                     else:
                         r[k] = v
                 processed.append(r)

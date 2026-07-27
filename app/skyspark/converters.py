@@ -32,7 +32,10 @@ def _to_axon(value: Any) -> str:
         return "true" if value else "false"
 
     # str -> quoted string, escape quotes
+    # But Ref values (@p:...) must be emitted unquoted so Axon recognizes them
     if isinstance(value, str):
+        if value.startswith("@"):
+            return value  # Ref: @p:demo:r:xxx — no quotes
         escaped = value.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"'
 
